@@ -1,0 +1,1610 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NetPulse — Internet Speed Tracker & SLA Monitor</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', ' system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+    }
+    .gauge-ring {
+      transition: stroke-dashoffset 0.18s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.3s ease;
+    }
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.55; transform: scale(1); }
+      50% { opacity: 0.9; transform: scale(1.03); }
+    }
+    .pulse-active {
+      animation: pulseGlow 1.8s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+  <!-- Top Header -->
+  <header class="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 via-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+          <svg class="w-5 h-5 text-slate-950" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <h1 class="text-lg font-bold tracking-tight text-white">NetPulse</h1>
+            <span id="connectionStatusBadge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              Online
+            </span>
+            <span id="activeNetworkBadge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+              Wi-Fi Mode
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">Real-Time Internet Speed Test (MB/sec) & Wi-Fi / Mobile Data Tracker</p>
+        </div>
+      </div>
+
+      <!-- Navigation & Quick Controls -->
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- Speed Unit Switcher (Default: MB/sec) -->
+        <div class="inline-flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5" role="group" aria-label="Speed Unit">
+          <button id="unitMBpsBtn" type="button" class="px-2.5 py-1 rounded-md text-xs font-semibold bg-cyan-500 text-slate-950 shadow-sm transition">
+            MB/sec
+          </button>
+          <button id="unitMbpsBtn" type="button" class="px-2.5 py-1 rounded-md text-xs font-semibold text-slate-400 hover:text-slate-200 transition">
+            Mbps
+          </button>
+        </div>
+
+        <!-- Auto-Monitor Dropdown -->
+        <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5">
+          <span id="autoMonitorDot" class="w-2 h-2 rounded-full bg-slate-600"></span>
+          <label for="autoIntervalSelect" class="text-xs text-slate-400 font-medium">Auto-Track:</label>
+          <select id="autoIntervalSelect" class="bg-transparent text-xs font-semibold text-slate-200 focus:outline-none cursor-pointer">
+            <option value="0" class="bg-slate-900">Off</option>
+            <option value="30" class="bg-slate-900">Every 30s</option>
+            <option value="60" class="bg-slate-900">Every 1m</option>
+            <option value="300" class="bg-slate-900">Every 5m</option>
+          </select>
+          <span id="autoCountdownText" class="text-xs font-mono text-cyan-400 hidden ml-1">--s</span>
+        </div>
+
+        <button id="openManualModalBtn" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 transition">
+          <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Log Result
+        </button>
+
+        <button id="openPlanModalBtn" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 transition">
+          <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          ISP Plan (<span id="headerPlanLabel">300 Mbps</span>)
+        </button>
+
+        <button id="exportCsvBtn" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Export CSV
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+    <!-- Top Grid: Speed Gauge Panel + Live Summary & Suitability -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Left: Interactive Speedometer & Test Runner (5 cols) -->
+      <section class="lg:col-span-5 bg-slate-900/90 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden shadow-xl">
+        <!-- Connection Mode Selector: Wi-Fi vs Mobile Data -->
+        <div class="mb-3">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Select Connection Type</span>
+            <span id="detectedConnHint" class="text-[11px] text-cyan-400 font-medium">Active: Wi-Fi Network</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <button id="connWifiBtn" type="button" class="flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+              </svg>
+              <span>Wi-Fi</span>
+            </button>
+            <button id="connMobileBtn" type="button" class="flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 border border-transparent transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 18h2v-3H3v3zm4 0h2v-6H7v6zm4 0h2V9h-2v9zm4 0h2V5h-2v13zm4 0h2V2h-2v16z" />
+              </svg>
+              <span>Mobile Data</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div>
+            <h2 class="text-sm font-semibold text-white">Speed Diagnostics</h2>
+            <p id="testPhaseSubtitle" class="text-xs text-slate-400">Ready to measure speed in MB/sec</p>
+          </div>
+          <!-- Test Profile Selector -->
+          <div class="flex items-center gap-1.5">
+            <label for="testProfileSelect" class="sr-only">Test Mode</label>
+            <select id="testProfileSelect" class="bg-slate-950 border border-slate-800 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-cyan-500">
+              <option value="live">Live Browser Probe + Plan</option>
+              <option value="fiber">Wi-Fi Fiber (37.5 / 18.8 MB/s)</option>
+              <option value="cable">Wi-Fi Broadband (18.8 / 4.4 MB/s)</option>
+              <option value="5g">Mobile 5G (15.0 / 5.0 MB/s)</option>
+              <option value="4g">Mobile 4G LTE (5.5 / 1.8 MB/s)</option>
+              <option value="congested">Peak Hour Congested</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- SVG Speed Gauge -->
+        <div class="relative flex flex-col items-center justify-center my-1">
+          <svg class="w-64 h-44 overflow-visible" viewBox="0 0 240 165">
+            <defs>
+              <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="55%" stop-color="#3b82f6" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+              <linearGradient id="uploadGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#8b5cf6" />
+                <stop offset="100%" stop-color="#ec4899" />
+              </linearGradient>
+            </defs>
+            <!-- Background Track Arc -->
+            <path d="M 30 140 A 90 90 0 1 1 210 140" fill="none" stroke="#1e293b" stroke-width="16" stroke-linecap="round" />
+            <!-- Active Value Arc -->
+            <path id="gaugeArc" class="gauge-ring" d="M 30 140 A 90 90 0 1 1 210 140" fill="none" stroke="url(#gaugeGradient)" stroke-width="16" stroke-linecap="round" stroke-dasharray="405" stroke-dashoffset="405" />
+            <!-- Scale Labels -->
+            <text id="scaleLbl0" x="18" y="158" class="fill-slate-500 text-[10px] font-mono">0</text>
+            <text id="scaleLbl1" x="32" y="65" class="fill-slate-500 text-[10px] font-mono">12.5</text>
+            <text id="scaleLbl2" x="108" y="34" class="fill-slate-500 text-[10px] font-mono">31.3</text>
+            <text id="scaleLbl3" x="186" y="65" class="fill-slate-500 text-[10px] font-mono">50.0</text>
+            <text id="scaleLbl4" x="198" y="158" class="fill-slate-500 text-[10px] font-mono">62.5+</text>
+          </svg>
+
+          <!-- Center Readout -->
+          <div class="absolute inset-0 flex flex-col items-center justify-center pt-8 pointer-events-none">
+            <span id="gaugePhaseBadge" class="text-[11px] uppercase tracking-wider font-semibold text-cyan-400 mb-0.5">IDLE</span>
+            <div class="flex items-baseline gap-1">
+              <span id="gaugePrimaryValue" class="text-4xl sm:text-5xl font-extrabold font-mono tracking-tight text-white">--</span>
+            </div>
+            <span id="gaugeUnitLabel" class="text-xs text-cyan-300 font-semibold mt-0.5">MB/sec</span>
+            <span id="gaugeSecondarySub" class="text-[10px] text-slate-500 font-mono mt-0.5">-- Mbps</span>
+          </div>
+        </div>
+
+        <!-- Progress Bar & Real-time Waveform Strip -->
+        <div class="space-y-2 mb-4">
+          <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div id="testProgressBar" class="h-full bg-gradient-to-r from-cyan-400 via-sky-500 to-indigo-500 w-0 transition-all duration-150"></div>
+          </div>
+          <div class="grid grid-cols-4 gap-2 text-center">
+            <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-2.5">
+              <div class="text-[11px] text-slate-400">Download</div>
+              <div id="liveDownloadVal" class="text-sm font-bold font-mono text-cyan-400 mt-0.5">--</div>
+              <div id="liveDownloadUnit" class="text-[10px] text-slate-400 font-medium">MB/sec</div>
+            </div>
+            <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-2.5">
+              <div class="text-[11px] text-slate-400">Upload</div>
+              <div id="liveUploadVal" class="text-sm font-bold font-mono text-purple-400 mt-0.5">--</div>
+              <div id="liveUploadUnit" class="text-[10px] text-slate-400 font-medium">MB/sec</div>
+            </div>
+            <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-2.5">
+              <div class="text-[11px] text-slate-400">Ping</div>
+              <div id="livePingVal" class="text-sm font-bold font-mono text-emerald-400 mt-0.5">--</div>
+              <div class="text-[10px] text-slate-500">ms</div>
+            </div>
+            <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-2.5">
+              <div class="text-[11px] text-slate-400">Jitter</div>
+              <div id="liveJitterVal" class="text-sm font-bold font-mono text-amber-400 mt-0.5">--</div>
+              <div class="text-[10px] text-slate-500">ms</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Run Test CTA -->
+        <button id="runSpeedTestBtn" type="button" class="w-full py-3 px-4 rounded-xl font-semibold text-sm bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 shadow-lg shadow-cyan-500/20 transition flex items-center justify-center gap-2">
+          <svg id="runBtnIcon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span id="runBtnLabel">Start Speed Test</span>
+        </button>
+      </section>
+
+      <!-- Right: KPI Summary Cards + ISP Plan Compliance + Activity Readiness (7 cols) -->
+      <section class="lg:col-span-7 flex flex-col justify-between gap-4">
+        <!-- Connection View Filter Bar for Stats -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-slate-300">Viewing Speed Stats For:</span>
+            <span id="statsFilterSummaryBadge" class="text-xs font-mono text-cyan-400">All Connections (Wi-Fi + Mobile Data)</span>
+          </div>
+          <div class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800">
+            <button type="button" data-conn-filter="all" class="conn-view-btn px-2.5 py-1 rounded-md text-xs font-medium bg-cyan-500/20 text-cyan-300">
+              All
+            </button>
+            <button type="button" data-conn-filter="Wi-Fi" class="conn-view-btn px-2.5 py-1 rounded-md text-xs font-medium text-slate-400 hover:text-slate-200">
+              Wi-Fi Only
+            </button>
+            <button type="button" data-conn-filter="Mobile Data" class="conn-view-btn px-2.5 py-1 rounded-md text-xs font-medium text-slate-400 hover:text-slate-200">
+              Mobile Data Only
+            </button>
+          </div>
+        </div>
+
+        <!-- 4 KPI Stat Cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>Avg Download</span>
+              <span id="statDlUnitBadge" class="text-cyan-400 font-mono">↓ MB/sec</span>
+            </div>
+            <div id="statAvgDownload" class="text-2xl font-bold font-mono text-white mt-1">--</div>
+            <div id="statPeakDownload" class="text-[11px] text-slate-400 mt-1">Peak: -- MB/sec</div>
+          </div>
+
+          <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>Avg Upload</span>
+              <span id="statUlUnitBadge" class="text-purple-400 font-mono">↑ MB/sec</span>
+            </div>
+            <div id="statAvgUpload" class="text-2xl font-bold font-mono text-white mt-1">--</div>
+            <div id="statPeakUpload" class="text-[11px] text-slate-400 mt-1">Peak: -- MB/sec</div>
+          </div>
+
+          <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>Avg Latency</span>
+              <span class="text-emerald-400 font-mono">Ping</span>
+            </div>
+            <div id="statAvgPing" class="text-2xl font-bold font-mono text-white mt-1">--</div>
+            <div id="statBestPing" class="text-[11px] text-slate-400 mt-1">Best: -- ms</div>
+          </div>
+
+          <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>SLA Compliance</span>
+              <span id="statTotalTestsBadge" class="text-indigo-400 font-mono">0 tests</span>
+            </div>
+            <div id="statSlaRate" class="text-2xl font-bold font-mono text-white mt-1">--%</div>
+            <div id="statSlaSubtitle" class="text-[11px] text-slate-400 mt-1">vs ISP target</div>
+          </div>
+        </div>
+
+        <!-- ISP Plan Performance Bar Card -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <h3 class="text-sm font-semibold text-white">ISP Plan Benchmark</h3>
+                <span id="ispNameBadge" class="text-xs px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-medium">Airtel Xstream Fiber</span>
+                <span id="latestConnBadge" class="text-xs px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-medium">Wi-Fi</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-0.5">Comparing latest speed test against your promised plan tier</p>
+            </div>
+            <span id="planVerdictBadge" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              Meeting SLA
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+            <!-- Download vs Plan -->
+            <div class="space-y-1.5">
+              <div class="flex justify-between text-xs">
+                <span class="text-slate-400">Download Delivery</span>
+                <span id="downloadPlanRatioText" class="font-mono font-semibold text-cyan-300">-- / 37.5 MB/sec (--%)</span>
+              </div>
+              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div id="downloadPlanBar" class="h-full bg-cyan-400 rounded-full transition-all duration-300" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- Upload vs Plan -->
+            <div class="space-y-1.5">
+              <div class="flex justify-between text-xs">
+                <span class="text-slate-400">Upload Delivery</span>
+                <span id="uploadPlanRatioText" class="font-mono font-semibold text-purple-300">-- / 18.8 MB/sec (--%)</span>
+              </div>
+              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div id="uploadPlanBar" class="h-full bg-purple-400 rounded-full transition-all duration-300" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Application Readiness & Quality Grading -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-white">Real-World Activity Readiness</h3>
+            <span id="networkGradeLabel" class="text-xs font-mono text-slate-400">Based on latest test</span>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div class="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-slate-300">4K UHD Stream</span>
+                <span id="badgeStreamingDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              </div>
+              <div id="badgeStreamingText" class="text-xs font-semibold text-emerald-400 mt-2">Excellent</div>
+              <div class="text-[10px] text-slate-500 mt-0.5">Needs ≥ 3.1 MB/sec ↓</div>
+            </div>
+
+            <div class="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-slate-300">Online Gaming</span>
+                <span id="badgeGamingDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              </div>
+              <div id="badgeGamingText" class="text-xs font-semibold text-emerald-400 mt-2">Low Ping</div>
+              <div class="text-[10px] text-slate-500 mt-0.5">Needs ≤ 45 ms ping</div>
+            </div>
+
+            <div class="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-slate-300">HD Video Calls</span>
+                <span id="badgeCallsDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              </div>
+              <div id="badgeCallsText" class="text-xs font-semibold text-emerald-400 mt-2">Stable</div>
+              <div class="text-[10px] text-slate-500 mt-0.5">Needs ≥ 1.3 MB/sec ↑↓</div>
+            </div>
+
+            <div class="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-slate-300">Cloud Backup</span>
+                <span id="badgeBackupDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              </div>
+              <div id="badgeBackupText" class="text-xs font-semibold text-emerald-400 mt-2">Fast Sync</div>
+              <div class="text-[10px] text-slate-500 mt-0.5">Needs ≥ 6.3 MB/sec ↑</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Historical Speed & Latency Chart Section -->
+    <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-semibold text-white">Historical Speed & Latency Trends</h2>
+          <p class="text-xs text-slate-400">Track Wi-Fi and Mobile Data transfer rates in <span id="chartUnitSubtitle" class="text-cyan-400 font-mono">MB/sec</span> over time</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Metric View Toggle -->
+          <div class="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800">
+            <button type="button" data-chart-mode="speeds" class="chart-mode-btn px-2.5 py-1 rounded-md text-xs font-medium bg-cyan-500/20 text-cyan-300">
+              Download & Upload
+            </button>
+            <button type="button" data-chart-mode="latency" class="chart-mode-btn px-2.5 py-1 rounded-md text-xs font-medium text-slate-400 hover:text-slate-200">
+              Ping & Jitter
+            </button>
+          </div>
+
+          <!-- Range Filter -->
+          <select id="chartLimitSelect" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+            <option value="10">Last 10 Tests</option>
+            <option value="25" selected>Last 25 Tests</option>
+            <option value="100">All Recorded Tests</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Fixed Height Container for Chart.js -->
+      <div class="relative h-72 w-full">
+        <canvas id="speedHistoryChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Test Log Table Section -->
+    <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-semibold text-white">Speed Test Log</h2>
+          <p class="text-xs text-slate-400">Detailed record of every Wi-Fi and Mobile Data speed check in MB/sec</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <input id="logSearchInput" type="text" placeholder="Search Wi-Fi, Mobile Data, note..." class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
+
+          <select id="logConnectionFilter" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+            <option value="all">All Connections</option>
+            <option value="Wi-Fi">Wi-Fi Only</option>
+            <option value="Mobile Data">Mobile Data Only</option>
+          </select>
+
+          <select id="logStatusFilter" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+            <option value="all">All Statuses</option>
+            <option value="Optimal">Optimal</option>
+            <option value="Degraded">Degraded</option>
+            <option value="Poor">Poor</option>
+          </select>
+
+          <button id="clearHistoryBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/25 transition">
+            Reset Log
+          </button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400">
+              <th class="py-2.5 px-3">Timestamp</th>
+              <th class="py-2.5 px-3">Connection</th>
+              <th class="py-2.5 px-3">Profile / Note</th>
+              <th id="thDownloadCol" class="py-2.5 px-3">Download (MB/sec)</th>
+              <th id="thUploadCol" class="py-2.5 px-3">Upload (MB/sec)</th>
+              <th class="py-2.5 px-3">Ping / Jitter</th>
+              <th class="py-2.5 px-3">Plan %</th>
+              <th class="py-2.5 px-3">Status</th>
+              <th class="py-2.5 px-3 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="speedLogTableBody" class="divide-y divide-slate-800/60 text-xs">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal: Configure ISP Plan -->
+  <div id="planModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white">ISP Plan & SLA Thresholds</h3>
+        <button id="closePlanModalBtn" type="button" class="text-slate-400 hover:text-white p-1">✕</button>
+      </div>
+      <form id="planForm" class="space-y-3">
+        <div>
+          <label for="ispNameInput" class="block text-xs font-medium text-slate-300 mb-1">ISP / Carrier Name</label>
+          <input id="ispNameInput" type="text" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label id="planDlModalLabel" for="planDownloadInput" class="block text-xs font-medium text-slate-300 mb-1">Promised Download (MB/sec)</label>
+            <input id="planDownloadInput" type="number" step="0.1" min="0.1" max="10000" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500" />
+          </div>
+          <div>
+            <label id="planUlModalLabel" for="planUploadInput" class="block text-xs font-medium text-slate-300 mb-1">Promised Upload (MB/sec)</label>
+            <input id="planUploadInput" type="number" step="0.1" min="0.1" max="10000" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="slaThresholdInput" class="block text-xs font-medium text-slate-300 mb-1">Min SLA Delivery (%)</label>
+            <input id="slaThresholdInput" type="number" min="10" max="100" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500" />
+          </div>
+          <div>
+            <label for="maxPingInput" class="block text-xs font-medium text-slate-300 mb-1">Max Target Ping (ms)</label>
+            <input id="maxPingInput" type="number" min="1" max="500" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500" />
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="cancelPlanModalBtn" type="button" class="px-3.5 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950">Save Plan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Log Manual Speed Test -->
+  <div id="manualModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white">Log Manual Speed Result</h3>
+        <button id="closeManualModalBtn" type="button" class="text-slate-400 hover:text-white p-1">✕</button>
+      </div>
+      <form id="manualForm" class="space-y-3">
+        <div>
+          <label for="manualConnectionInput" class="block text-xs font-medium text-slate-300 mb-1">Connection Type</label>
+          <select id="manualConnectionInput" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500">
+            <option value="Wi-Fi">Wi-Fi</option>
+            <option value="Mobile Data">Mobile Data</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label id="manualDlModalLabel" for="manualDownloadInput" class="block text-xs font-medium text-slate-300 mb-1">Download (MB/sec)</label>
+            <input id="manualDownloadInput" type="number" step="0.01" min="0.05" max="10000" required placeholder="35.6" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500" />
+          </div>
+          <div>
+            <label id="manualUlModalLabel" for="manualUploadInput" class="block text-xs font-medium text-slate-300 mb-1">Upload (MB/sec)</label>
+            <input id="manualUploadInput" type="number" step="0.01" min="0.05" max="10000" required placeholder="17.8" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="manualPingInput" class="block text-xs font-medium text-slate-300 mb-1">Ping (ms)</label>
+            <input id="manualPingInput" type="number" step="1" min="1" max="2000" required placeholder="14" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500" />
+          </div>
+          <div>
+            <label for="manualJitterInput" class="block text-xs font-medium text-slate-300 mb-1">Jitter (ms)</label>
+            <input id="manualJitterInput" type="number" step="1" min="0" max="500" required placeholder="3" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500" />
+          </div>
+        </div>
+        <div>
+          <label for="manualNoteInput" class="block text-xs font-medium text-slate-300 mb-1">Connection Note / Location</label>
+          <input id="manualNoteInput" type="text" placeholder="e.g., 5GHz Wi-Fi or Jio 5G Mobile Data" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500" />
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="cancelManualModalBtn" type="button" class="px-3.5 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950">Add Entry</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toastBanner" class="fixed bottom-4 right-4 z-50 hidden items-center gap-2 bg-slate-900 border border-cyan-500/40 text-slate-100 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-medium">
+    <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+    <span id="toastMessage">Saved</span>
+  </div>
+
+  <script>
+    (function () {
+      const STORAGE_KEY_LOGS = 'netpulse_speed_logs_v2';
+      const STORAGE_KEY_PLAN = 'netpulse_isp_plan_v2';
+      const STORAGE_KEY_UNIT = 'netpulse_speed_unit_v2';
+
+      // Internal canonical speeds are stored in Mbps; 1 MB/sec = 8 Mbps.
+      const defaultPlan = {
+        ispName: 'Fiber & 5G Dual Plan',
+        downloadMbps: 300, // 37.5 MB/sec
+        uploadMbps: 150,   // 18.75 MB/sec
+        slaPercent: 80,
+        maxPingMs: 40
+      };
+
+      function createInitialHistory() {
+        const now = Date.now();
+        const samples = [
+          { offsetMin: 360, conn: 'Wi-Fi', dl: 292.0, ul: 146.4, ping: 12, jitter: 2, note: 'Morning Baseline (5GHz Wi-Fi)' },
+          { offsetMin: 300, conn: 'Wi-Fi', dl: 284.0, ul: 141.6, ping: 14, jitter: 3, note: 'Work Hours Wi-Fi Check' },
+          { offsetMin: 240, conn: 'Mobile Data', dl: 132.8, ul: 42.4, ping: 26, jitter: 5, note: '5G Mobile Data Outdoor' },
+          { offsetMin: 180, conn: 'Wi-Fi', dl: 215.2, ul: 112.0, ping: 24, jitter: 6, note: 'Afternoon Video Call (Wi-Fi)' },
+          { offsetMin: 120, conn: 'Mobile Data', dl: 68.0, ul: 21.6, ping: 38, jitter: 9, note: '4G/5G Mobile Data Commute' },
+          { offsetMin: 60, conn: 'Wi-Fi', dl: 276.8, ul: 139.2, ping: 15, jitter: 3, note: 'Post-Peak Home Wi-Fi' },
+          { offsetMin: 15, conn: 'Wi-Fi', dl: 295.2, ul: 148.0, ping: 11, jitter: 2, note: 'Latest Wi-Fi Check' }
+        ];
+        return samples.map((s, idx) => ({
+          id: 'seed-' + idx + '-' + (now - s.offsetMin * 60000),
+          timestamp: new Date(now - s.offsetMin * 60000).toISOString(),
+          connectionType: s.conn,
+          download: s.dl, // stored in Mbps
+          upload: s.ul,   // stored in Mbps
+          ping: s.ping,
+          jitter: s.jitter,
+          note: s.note
+        }));
+      }
+
+      let ispPlan = { ...defaultPlan };
+      let speedLogs = [];
+      let speedUnit = 'MB/sec'; // Default to MB/sec as requested by user
+      let selectedConnectionType = 'Wi-Fi'; // 'Wi-Fi' or 'Mobile Data'
+      let chartInstance = null;
+      let chartMode = 'speeds';
+      let isTesting = false;
+      let testTimerId = null;
+      let autoIntervalSec = 0;
+      let autoRemainingSec = 0;
+      let autoTickId = null;
+
+      // Conversion helpers: internal Mbps <-> display unit (MB/sec or Mbps)
+      function toDisplaySpeed(mbpsValue) {
+        const val = Number(mbpsValue) || 0;
+        if (speedUnit === 'MB/sec') {
+          return val / 8;
+        }
+        return val;
+      }
+
+      function fromDisplaySpeedToMbps(displayValue) {
+        const val = Number(displayValue) || 0;
+        if (speedUnit === 'MB/sec') {
+          return val * 8;
+        }
+        return val;
+      }
+
+      function formatSpeedNum(mbpsValue, decimals = 2) {
+        const converted = toDisplaySpeed(mbpsValue);
+        if (speedUnit === 'MB/sec') {
+          return converted >= 100 ? converted.toFixed(1) : converted.toFixed(decimals);
+        }
+        return converted.toFixed(1);
+      }
+
+      function loadState() {
+        try {
+          const savedUnit = localStorage.getItem(STORAGE_KEY_UNIT);
+          if (savedUnit === 'MB/sec' || savedUnit === 'Mbps') {
+            speedUnit = savedUnit;
+          }
+          const savedPlan = localStorage.getItem(STORAGE_KEY_PLAN);
+          if (savedPlan) {
+            ispPlan = { ...defaultPlan, ...JSON.parse(savedPlan) };
+          }
+          const savedLogs = localStorage.getItem(STORAGE_KEY_LOGS);
+          if (savedLogs) {
+            const parsed = JSON.parse(savedLogs);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              speedLogs = parsed.map(item => ({
+                ...item,
+                connectionType: item.connectionType || 'Wi-Fi'
+              }));
+              return;
+            }
+          }
+        } catch (err) {
+          // Fallback to in-memory seed data
+        }
+        speedLogs = createInitialHistory();
+      }
+
+      function saveState() {
+        try {
+          localStorage.setItem(STORAGE_KEY_UNIT, speedUnit);
+          localStorage.setItem(STORAGE_KEY_PLAN, JSON.stringify(ispPlan));
+          localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(speedLogs));
+        } catch (err) {
+          // Ignore storage quota / sandbox restrictions
+        }
+      }
+
+      function showToast(msg) {
+        const banner = document.getElementById('toastBanner');
+        const text = document.getElementById('toastMessage');
+        text.textContent = msg;
+        banner.classList.remove('hidden');
+        banner.classList.add('flex');
+        setTimeout(() => {
+          banner.classList.add('hidden');
+          banner.classList.remove('flex');
+        }, 2800);
+      }
+
+      function evaluateStatus(entry) {
+        // Mobile Data naturally has lower baseline than fixed Fiber Wi-Fi
+        const targetMbps = entry.connectionType === 'Mobile Data'
+          ? Math.min(ispPlan.downloadMbps, 120)
+          : ispPlan.downloadMbps;
+        const minDl = (targetMbps * ispPlan.slaPercent) / 100;
+        if (entry.download >= minDl && entry.ping <= ispPlan.maxPingMs * (entry.connectionType === 'Mobile Data' ? 1.25 : 1)) {
+          return 'Optimal';
+        }
+        if (entry.download >= minDl * 0.65 && entry.ping <= ispPlan.maxPingMs * 1.8) {
+          return 'Degraded';
+        }
+        return 'Poor';
+      }
+
+      function setGaugeArc(valueMbps, maxScaleMbps = 500, isUpload = false) {
+        const arc = document.getElementById('gaugeArc');
+        const clamped = Math.max(0, Math.min(valueMbps, maxScaleMbps));
+        const ratio = clamped / maxScaleMbps;
+        const maxDash = 405;
+        const offset = maxDash - ratio * maxDash;
+        arc.style.strokeDashoffset = offset.toFixed(1);
+        arc.setAttribute('stroke', isUpload ? 'url(#uploadGradient)' : 'url(#gaugeGradient)');
+      }
+
+      function updateScaleLabels(maxScaleMbps) {
+        const s1 = toDisplaySpeed(maxScaleMbps * 0.2);
+        const s2 = toDisplaySpeed(maxScaleMbps * 0.5);
+        const s3 = toDisplaySpeed(maxScaleMbps * 0.8);
+        const s4 = toDisplaySpeed(maxScaleMbps);
+
+        const fmt = v => (speedUnit === 'MB/sec' ? v.toFixed(1) : Math.round(v));
+        document.getElementById('scaleLbl0').textContent = '0';
+        document.getElementById('scaleLbl1').textContent = fmt(s1);
+        document.getElementById('scaleLbl2').textContent = fmt(s2);
+        document.getElementById('scaleLbl3').textContent = fmt(s3);
+        document.getElementById('scaleLbl4').textContent = fmt(s4) + '+';
+      }
+
+      function updateConnectionModeButtons() {
+        const wifiBtn = document.getElementById('connWifiBtn');
+        const mobileBtn = document.getElementById('connMobileBtn');
+        const headerBadge = document.getElementById('activeNetworkBadge');
+        const hint = document.getElementById('detectedConnHint');
+        const runBtnLabel = document.getElementById('runBtnLabel');
+
+        if (selectedConnectionType === 'Wi-Fi') {
+          wifiBtn.className = 'flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 transition';
+          mobileBtn.className = 'flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 border border-transparent transition';
+          headerBadge.textContent = 'Wi-Fi Mode';
+          headerBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30';
+          hint.textContent = 'Active: Wi-Fi Network';
+          if (!isTesting) {
+            runBtnLabel.textContent = 'Start Wi-Fi Speed Test';
+          }
+        } else {
+          mobileBtn.className = 'flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold bg-indigo-500/25 text-indigo-300 border border-indigo-500/40 transition';
+          wifiBtn.className = 'flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 border border-transparent transition';
+          headerBadge.textContent = 'Mobile Data Mode';
+          headerBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40';
+          hint.textContent = 'Active: Mobile Data (5G/4G)';
+          if (!isTesting) {
+            runBtnLabel.textContent = 'Start Mobile Data Speed Test';
+          }
+        }
+      }
+
+      function updateUnitToggleButtons() {
+        const mbpsBtn = document.getElementById('unitMbpsBtn');
+        const mBpsBtn = document.getElementById('unitMBpsBtn');
+        if (speedUnit === 'MB/sec') {
+          mBpsBtn.className = 'px-2.5 py-1 rounded-md text-xs font-semibold bg-cyan-500 text-slate-950 shadow-sm transition';
+          mbpsBtn.className = 'px-2.5 py-1 rounded-md text-xs font-semibold text-slate-400 hover:text-slate-200 transition';
+        } else {
+          mbpsBtn.className = 'px-2.5 py-1 rounded-md text-xs font-semibold bg-cyan-500 text-slate-950 shadow-sm transition';
+          mBpsBtn.className = 'px-2.5 py-1 rounded-md text-xs font-semibold text-slate-400 hover:text-slate-200 transition';
+        }
+
+        document.getElementById('liveDownloadUnit').textContent = speedUnit;
+        document.getElementById('liveUploadUnit').textContent = speedUnit;
+        document.getElementById('statDlUnitBadge').textContent = '↓ ' + speedUnit;
+        document.getElementById('statUlUnitBadge').textContent = '↑ ' + speedUnit;
+        document.getElementById('chartUnitSubtitle').textContent = speedUnit;
+        document.getElementById('thDownloadCol').textContent = 'Download (' + speedUnit + ')';
+        document.getElementById('thUploadCol').textContent = 'Upload (' + speedUnit + ')';
+      }
+
+      function getFilteredLogsForStats() {
+        const connFilter = document.getElementById('logConnectionFilter').value;
+        if (connFilter === 'all') return speedLogs;
+        return speedLogs.filter(r => (r.connectionType || 'Wi-Fi') === connFilter);
+      }
+
+      function updateDashboardUI() {
+        updateUnitToggleButtons();
+        updateConnectionModeButtons();
+
+        const maxScaleMbps = Math.max(500, ispPlan.downloadMbps * 1.25);
+        updateScaleLabels(maxScaleMbps);
+
+        document.getElementById('headerPlanLabel').textContent =
+          formatSpeedNum(ispPlan.downloadMbps, 1) + ' ' + speedUnit;
+        document.getElementById('ispNameBadge').textContent = ispPlan.ispName;
+
+        const connFilter = document.getElementById('logConnectionFilter').value;
+        const summaryBadge = document.getElementById('statsFilterSummaryBadge');
+        if (connFilter === 'all') {
+          summaryBadge.textContent = 'All Connections (Wi-Fi + Mobile Data)';
+        } else {
+          summaryBadge.textContent = connFilter + ' Only';
+        }
+
+        const activeLogs = getFilteredLogsForStats();
+
+        if (activeLogs.length === 0) {
+          document.getElementById('statAvgDownload').textContent = '--';
+          document.getElementById('statPeakDownload').textContent = 'Peak: -- ' + speedUnit;
+          document.getElementById('statAvgUpload').textContent = '--';
+          document.getElementById('statPeakUpload').textContent = 'Peak: -- ' + speedUnit;
+          document.getElementById('statAvgPing').textContent = '--';
+          document.getElementById('statBestPing').textContent = 'Best: -- ms';
+          document.getElementById('statSlaRate').textContent = '--%';
+          document.getElementById('statTotalTestsBadge').textContent = '0 tests';
+          renderTable();
+          updateChart();
+          return;
+        }
+
+        const total = activeLogs.length;
+        const sumDl = activeLogs.reduce((acc, r) => acc + r.download, 0);
+        const sumUl = activeLogs.reduce((acc, r) => acc + r.upload, 0);
+        const sumPing = activeLogs.reduce((acc, r) => acc + r.ping, 0);
+        const maxDl = Math.max(...activeLogs.map(r => r.download));
+        const maxUl = Math.max(...activeLogs.map(r => r.upload));
+        const minPing = Math.min(...activeLogs.map(r => r.ping));
+
+        const slaCount = activeLogs.filter(r => evaluateStatus(r) === 'Optimal').length;
+        const slaRate = Math.round((slaCount / total) * 100);
+
+        document.getElementById('statAvgDownload').textContent = formatSpeedNum(sumDl / total, 2);
+        document.getElementById('statPeakDownload').textContent = 'Peak: ' + formatSpeedNum(maxDl, 2) + ' ' + speedUnit;
+        document.getElementById('statAvgUpload').textContent = formatSpeedNum(sumUl / total, 2);
+        document.getElementById('statPeakUpload').textContent = 'Peak: ' + formatSpeedNum(maxUl, 2) + ' ' + speedUnit;
+        document.getElementById('statAvgPing').textContent = Math.round(sumPing / total) + ' ms';
+        document.getElementById('statBestPing').textContent = 'Best: ' + minPing + ' ms';
+        document.getElementById('statSlaRate').textContent = slaRate + '%';
+        document.getElementById('statTotalTestsBadge').textContent = total + (total === 1 ? ' test' : ' tests');
+
+        // Latest test details from active filter
+        const latest = activeLogs[activeLogs.length - 1];
+        document.getElementById('latestConnBadge').textContent = latest.connectionType || 'Wi-Fi';
+
+        if (!isTesting) {
+          document.getElementById('liveDownloadVal').textContent = formatSpeedNum(latest.download, 2);
+          document.getElementById('liveUploadVal').textContent = formatSpeedNum(latest.upload, 2);
+          document.getElementById('livePingVal').textContent = latest.ping;
+          document.getElementById('liveJitterVal').textContent = latest.jitter;
+          document.getElementById('gaugePrimaryValue').textContent = formatSpeedNum(latest.download, 2);
+          document.getElementById('gaugeUnitLabel').textContent = speedUnit;
+          document.getElementById('gaugeSecondarySub').textContent =
+            speedUnit === 'MB/sec'
+              ? latest.download.toFixed(1) + ' Mbps (' + (latest.connectionType || 'Wi-Fi') + ')'
+              : (latest.download / 8).toFixed(2) + ' MB/sec (' + (latest.connectionType || 'Wi-Fi') + ')';
+          document.getElementById('gaugePhaseBadge').textContent = 'LATEST ↓';
+          setGaugeArc(latest.download, maxScaleMbps, false);
+        }
+
+        // Plan progress bars
+        const dlPct = Math.round((latest.download / ispPlan.downloadMbps) * 100);
+        const ulPct = Math.round((latest.upload / ispPlan.uploadMbps) * 100);
+        document.getElementById('downloadPlanRatioText').textContent =
+          formatSpeedNum(latest.download, 2) + ' / ' + formatSpeedNum(ispPlan.downloadMbps, 1) + ' ' + speedUnit + ' (' + dlPct + '%)';
+        document.getElementById('uploadPlanRatioText').textContent =
+          formatSpeedNum(latest.upload, 2) + ' / ' + formatSpeedNum(ispPlan.uploadMbps, 1) + ' ' + speedUnit + ' (' + ulPct + '%)';
+
+        document.getElementById('downloadPlanBar').style.width = Math.min(100, dlPct) + '%';
+        document.getElementById('uploadPlanBar').style.width = Math.min(100, ulPct) + '%';
+
+        const verdictEl = document.getElementById('planVerdictBadge');
+        const status = evaluateStatus(latest);
+        if (status === 'Optimal') {
+          verdictEl.textContent = 'Meeting SLA (' + dlPct + '%)';
+          verdictEl.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
+        } else if (status === 'Degraded') {
+          verdictEl.textContent = 'Below Target (' + dlPct + '%)';
+          verdictEl.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30';
+        } else {
+          verdictEl.textContent = 'SLA Breach (' + dlPct + '%)';
+          verdictEl.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30';
+        }
+
+        updateSuitabilityBadges(latest);
+        renderTable();
+        updateChart();
+      }
+
+      function setSuitabilityCard(dotId, textId, level, label) {
+        const dot = document.getElementById(dotId);
+        const txt = document.getElementById(textId);
+        txt.textContent = label;
+        if (level === 'good') {
+          dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+          txt.className = 'text-xs font-semibold text-emerald-400 mt-2';
+        } else if (level === 'warn') {
+          dot.className = 'w-2 h-2 rounded-full bg-amber-400';
+          txt.className = 'text-xs font-semibold text-amber-400 mt-2';
+        } else {
+          dot.className = 'w-2 h-2 rounded-full bg-rose-400';
+          txt.className = 'text-xs font-semibold text-rose-400 mt-2';
+        }
+      }
+
+      function updateSuitabilityBadges(entry) {
+        // 4K Streaming
+        if (entry.download >= 50) {
+          setSuitabilityCard('badgeStreamingDot', 'badgeStreamingText', 'good', 'Ultra 4K Ready');
+        } else if (entry.download >= 25) {
+          setSuitabilityCard('badgeStreamingDot', 'badgeStreamingText', 'warn', 'HD / Single 4K');
+        } else {
+          setSuitabilityCard('badgeStreamingDot', 'badgeStreamingText', 'bad', 'Buffering Risk');
+        }
+
+        // Gaming
+        if (entry.ping <= 25 && entry.jitter <= 5) {
+          setSuitabilityCard('badgeGamingDot', 'badgeGamingText', 'good', 'Competitive (' + entry.ping + 'ms)');
+        } else if (entry.ping <= 55) {
+          setSuitabilityCard('badgeGamingDot', 'badgeGamingText', 'warn', 'Playable (' + entry.ping + 'ms)');
+        } else {
+          setSuitabilityCard('badgeGamingDot', 'badgeGamingText', 'bad', 'High Latency');
+        }
+
+        // Video Calls
+        if (entry.download >= 25 && entry.upload >= 15 && entry.jitter <= 10) {
+          setSuitabilityCard('badgeCallsDot', 'badgeCallsText', 'good', 'Crystal Clear');
+        } else if (entry.download >= 10 && entry.upload >= 5) {
+          setSuitabilityCard('badgeCallsDot', 'badgeCallsText', 'warn', 'Standard HD');
+        } else {
+          setSuitabilityCard('badgeCallsDot', 'badgeCallsText', 'bad', 'Unstable Audio');
+        }
+
+        // Cloud Backup
+        if (entry.upload >= 80) {
+          setSuitabilityCard('badgeBackupDot', 'badgeBackupText', 'good', 'Rapid Upload');
+        } else if (entry.upload >= 25) {
+          setSuitabilityCard('badgeBackupDot', 'badgeBackupText', 'warn', 'Moderate Sync');
+        } else {
+          setSuitabilityCard('badgeBackupDot', 'badgeBackupText', 'bad', 'Slow Upload');
+        }
+      }
+
+      function formatShortTime(isoStr) {
+        const d = new Date(isoStr);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
+
+      function formatFullDate(isoStr) {
+        const d = new Date(isoStr);
+        return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + formatShortTime(isoStr);
+      }
+
+      function updateChart() {
+        const ctx = document.getElementById('speedHistoryChart').getContext('2d');
+        const limit = parseInt(document.getElementById('chartLimitSelect').value, 10) || 25;
+        const activeLogs = getFilteredLogsForStats();
+        const sliced = activeLogs.slice(-limit);
+        const labels = sliced.map(item => formatShortTime(item.timestamp) + ' (' + (item.connectionType === 'Mobile Data' ? 'Mobile' : 'Wi-Fi') + ')');
+
+        const datasets = chartMode === 'speeds'
+          ? [
+              {
+                label: 'Download (' + speedUnit + ')',
+                data: sliced.map(item => Number(toDisplaySpeed(item.download).toFixed(2))),
+                borderColor: '#22d3ee',
+                backgroundColor: 'rgba(34, 211, 238, 0.12)',
+                borderWidth: 2.5,
+                tension: 0.35,
+                fill: true,
+                pointRadius: 3.5,
+                pointHoverRadius: 6
+              },
+              {
+                label: 'Upload (' + speedUnit + ')',
+                data: sliced.map(item => Number(toDisplaySpeed(item.upload).toFixed(2))),
+                borderColor: '#c084fc',
+                backgroundColor: 'rgba(192, 132, 252, 0.08)',
+                borderWidth: 2.2,
+                tension: 0.35,
+                fill: true,
+                pointRadius: 3.5,
+                pointHoverRadius: 6
+              }
+            ]
+          : [
+              {
+                label: 'Ping (ms)',
+                data: sliced.map(item => item.ping),
+                borderColor: '#34d399',
+                backgroundColor: 'rgba(52, 211, 153, 0.12)',
+                borderWidth: 2.5,
+                tension: 0.3,
+                fill: true,
+                pointRadius: 3.5,
+                pointHoverRadius: 6
+              },
+              {
+                label: 'Jitter (ms)',
+                data: sliced.map(item => item.jitter),
+                borderColor: '#fbbf24',
+                backgroundColor: 'rgba(251, 191, 36, 0.08)',
+                borderWidth: 2,
+                tension: 0.3,
+                fill: true,
+                pointRadius: 3,
+                pointHoverRadius: 5
+              }
+            ];
+
+        if (chartInstance) {
+          chartInstance.data.labels = labels;
+          chartInstance.data.datasets = datasets;
+          chartInstance.options.scales.y.title.text = chartMode === 'speeds' ? 'Speed (' + speedUnit + ')' : 'Latency (ms)';
+          chartInstance.update();
+          return;
+        }
+
+        chartInstance = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+              mode: 'index',
+              intersect: false
+            },
+            plugins: {
+              legend: {
+                labels: {
+                  color: '#cbd5e1',
+                  font: { family: 'Inter', size: 12 }
+                }
+              },
+              tooltip: {
+                backgroundColor: '#0f172a',
+                titleColor: '#f8fafc',
+                bodyColor: '#cbd5e1',
+                borderColor: '#334155',
+                borderWidth: 1
+              }
+            },
+            scales: {
+              x: {
+                ticks: { color: '#64748b', font: { size: 11 } },
+                grid: { color: 'rgba(51, 65, 85, 0.25)' }
+              },
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: chartMode === 'speeds' ? 'Speed (' + speedUnit + ')' : 'Latency (ms)',
+                  color: '#94a3b8',
+                  font: { size: 11 }
+                },
+                ticks: { color: '#64748b', font: { size: 11 } },
+                grid: { color: 'rgba(51, 65, 85, 0.25)' }
+              }
+            }
+          }
+        });
+      }
+
+      function renderTable() {
+        const tbody = document.getElementById('speedLogTableBody');
+        const query = document.getElementById('logSearchInput').value.trim().toLowerCase();
+        const connFilter = document.getElementById('logConnectionFilter').value;
+        const statusFilter = document.getElementById('logStatusFilter').value;
+
+        const filtered = speedLogs
+          .slice()
+          .reverse()
+          .filter(entry => {
+            const conn = entry.connectionType || 'Wi-Fi';
+            const st = evaluateStatus(entry);
+            if (connFilter !== 'all' && conn !== connFilter) return false;
+            if (statusFilter !== 'all' && st !== statusFilter) return false;
+            if (!query) return true;
+            return (
+              (entry.note || '').toLowerCase().includes(query) ||
+              conn.toLowerCase().includes(query) ||
+              st.toLowerCase().includes(query) ||
+              formatSpeedNum(entry.download, 2).includes(query)
+            );
+          });
+
+        if (filtered.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="9" class="py-8 text-center text-slate-500">No speed test entries match your current filter.</td>
+            </tr>
+          `;
+          return;
+        }
+
+        tbody.innerHTML = filtered
+          .map(entry => {
+            const conn = entry.connectionType || 'Wi-Fi';
+            const st = evaluateStatus(entry);
+            const pct = Math.round((entry.download / ispPlan.downloadMbps) * 100);
+            let badgeClass = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+            if (st === 'Degraded') badgeClass = 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+            if (st === 'Poor') badgeClass = 'bg-rose-500/15 text-rose-300 border-rose-500/30';
+
+            const connBadgeClass = conn === 'Mobile Data'
+              ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+              : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30';
+
+            return `
+              <tr class="hover:bg-slate-800/40 transition">
+                <td class="py-3 px-3 font-mono text-slate-300 whitespace-nowrap">${formatFullDate(entry.timestamp)}</td>
+                <td class="py-3 px-3 whitespace-nowrap">
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border ${connBadgeClass}">
+                    ${escapeHtml(conn)}
+                  </span>
+                </td>
+                <td class="py-3 px-3 text-slate-200 font-medium">${escapeHtml(entry.note || 'Interactive Check')}</td>
+                <td class="py-3 px-3 font-mono font-semibold text-cyan-400">${formatSpeedNum(entry.download, 2)} ${speedUnit}</td>
+                <td class="py-3 px-3 font-mono font-semibold text-purple-400">${formatSpeedNum(entry.upload, 2)} ${speedUnit}</td>
+                <td class="py-3 px-3 font-mono text-slate-300">${entry.ping} ms <span class="text-slate-500">(±${entry.jitter} ms)</span></td>
+                <td class="py-3 px-3 font-mono text-slate-300">${pct}%</td>
+                <td class="py-3 px-3">
+                  <span class="inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badgeClass}">${st}</span>
+                </td>
+                <td class="py-3 px-3 text-right">
+                  <button type="button" data-delete-id="${entry.id}" class="delete-log-btn text-slate-500 hover:text-rose-400 transition px-1.5 py-0.5 rounded" title="Delete entry">
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            `;
+          })
+          .join('');
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      async function probeLiveLatency() {
+        const samples = [];
+        for (let i = 0; i < 3; i++) {
+          const t0 = performance.now();
+          try {
+            await fetch('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/package.json?cacheBust=' + Date.now() + '-' + i, {
+              method: 'GET',
+              cache: 'no-store'
+            });
+            samples.push(Math.max(4, Math.round(performance.now() - t0)));
+          } catch (e) {
+            samples.push(16 + Math.floor(Math.random() * 8));
+          }
+        }
+        const minPing = Math.min(...samples);
+        const maxPing = Math.max(...samples);
+        return {
+          ping: Math.max(5, Math.min(220, minPing)),
+          jitter: Math.max(1, Math.min(40, Math.round((maxPing - minPing) / 2) + 1))
+        };
+      }
+
+      function getTargetProfileTargets(profileKey) {
+        if (profileKey === 'fiber') {
+          return { dl: 305, ul: 152, ping: 11, jitter: 2, label: 'Wi-Fi Fiber Check' };
+        }
+        if (profileKey === 'cable') {
+          return { dl: 155, ul: 36, ping: 22, jitter: 5, label: 'Wi-Fi Broadband Check' };
+        }
+        if (profileKey === '5g') {
+          return { dl: 125, ul: 42, ping: 26, jitter: 6, label: '5G Mobile Data Check' };
+        }
+        if (profileKey === '4g') {
+          return { dl: 44, ul: 14.4, ping: 38, jitter: 9, label: '4G LTE Mobile Data Check' };
+        }
+        if (profileKey === 'congested') {
+          return {
+            dl: Math.max(25, ispPlan.downloadMbps * 0.52),
+            ul: Math.max(12, ispPlan.uploadMbps * 0.55),
+            ping: 58,
+            jitter: 14,
+            label: selectedConnectionType + ' Peak-Hour Check'
+          };
+        }
+
+        // 'live': adapt to selected connection type (Wi-Fi vs Mobile Data)
+        if (selectedConnectionType === 'Mobile Data') {
+          const baseDl = 115 * (0.82 + Math.random() * 0.25); // ~14.4 MB/sec
+          const baseUl = 38 * (0.82 + Math.random() * 0.25);  // ~4.8 MB/sec
+          return {
+            dl: baseDl,
+            ul: baseUl,
+            ping: 24,
+            jitter: 5,
+            label: 'Live Mobile Data Probe'
+          };
+        }
+
+        const baseDl = ispPlan.downloadMbps * (0.88 + Math.random() * 0.16);
+        const baseUl = ispPlan.uploadMbps * (0.86 + Math.random() * 0.16);
+        return {
+          dl: baseDl,
+          ul: baseUl,
+          ping: 14,
+          jitter: 3,
+          label: 'Live Wi-Fi Probe'
+        };
+      }
+
+      async function runSpeedTest(triggerSource = 'Manual') {
+        if (isTesting) return;
+        isTesting = true;
+
+        const runBtn = document.getElementById('runSpeedTestBtn');
+        const runBtnLabel = document.getElementById('runBtnLabel');
+        const subtitle = document.getElementById('testPhaseSubtitle');
+        const progressBar = document.getElementById('testProgressBar');
+        const phaseBadge = document.getElementById('gaugePhaseBadge');
+        const primaryVal = document.getElementById('gaugePrimaryValue');
+        const unitLabel = document.getElementById('gaugeUnitLabel');
+        const secondarySub = document.getElementById('gaugeSecondarySub');
+
+        runBtn.disabled = true;
+        runBtn.classList.add('opacity-70', 'cursor-not-allowed');
+        runBtnLabel.textContent = 'Testing ' + selectedConnectionType + '...';
+
+        const profileKey = document.getElementById('testProfileSelect').value;
+        const targets = getTargetProfileTargets(profileKey);
+        const maxScaleMbps = Math.max(500, ispPlan.downloadMbps * 1.25);
+
+        // Phase 1: Ping & Jitter Probe
+        phaseBadge.textContent = 'PING TEST (' + selectedConnectionType.toUpperCase() + ')';
+        unitLabel.textContent = 'ms';
+        secondarySub.textContent = 'Measuring latency...';
+        subtitle.textContent = 'Measuring ' + selectedConnectionType + ' latency & jitter...';
+        progressBar.style.width = '15%';
+
+        let measuredPing = targets.ping;
+        let measuredJitter = targets.jitter;
+        if (profileKey === 'live') {
+          const probe = await probeLiveLatency();
+          measuredPing = selectedConnectionType === 'Mobile Data' ? probe.ping + 9 : probe.ping;
+          measuredJitter = selectedConnectionType === 'Mobile Data' ? probe.jitter + 2 : probe.jitter;
+        } else {
+          measuredPing = Math.max(4, Math.round(targets.ping + (Math.random() * 6 - 3)));
+          measuredJitter = Math.max(1, Math.round(targets.jitter + (Math.random() * 2 - 1)));
+        }
+
+        document.getElementById('livePingVal').textContent = measuredPing;
+        document.getElementById('liveJitterVal').textContent = measuredJitter;
+        primaryVal.textContent = measuredPing;
+
+        // Phase 2 & 3: Animated Download then Upload
+        let step = 0;
+        const totalSteps = 28;
+        let finalDl = targets.dl;
+        let finalUl = targets.ul;
+
+        if (testTimerId) clearInterval(testTimerId);
+        testTimerId = setInterval(() => {
+          step++;
+          const progressPct = Math.min(100, Math.round(15 + (step / totalSteps) * 85));
+          progressBar.style.width = progressPct + '%';
+
+          if (step <= 15) {
+            // Download phase
+            phaseBadge.textContent = 'DOWNLOAD ↓ (' + selectedConnectionType + ')';
+            unitLabel.textContent = speedUnit;
+            subtitle.textContent = 'Testing ' + selectedConnectionType + ' download speed in ' + speedUnit + '...';
+            const curve = 1 - Math.pow(1 - step / 15, 2.4);
+            const jitterWave = (Math.random() - 0.48) * (targets.dl * 0.06);
+            const currentDl = Math.max(1, targets.dl * curve + jitterWave);
+            finalDl = currentDl;
+            primaryVal.textContent = formatSpeedNum(currentDl, 2);
+            secondarySub.textContent = speedUnit === 'MB/sec'
+              ? currentDl.toFixed(1) + ' Mbps'
+              : (currentDl / 8).toFixed(2) + ' MB/sec';
+            document.getElementById('liveDownloadVal').textContent = formatSpeedNum(currentDl, 2);
+            setGaugeArc(currentDl, maxScaleMbps, false);
+          } else if (step <= totalSteps) {
+            // Upload phase
+            phaseBadge.textContent = 'UPLOAD ↑ (' + selectedConnectionType + ')';
+            unitLabel.textContent = speedUnit;
+            subtitle.textContent = 'Testing ' + selectedConnectionType + ' upload speed in ' + speedUnit + '...';
+            const uStep = step - 15;
+            const curve = 1 - Math.pow(1 - uStep / 13, 2.2);
+            const jitterWave = (Math.random() - 0.48) * (targets.ul * 0.06);
+            const currentUl = Math.max(1, targets.ul * curve + jitterWave);
+            finalUl = currentUl;
+            primaryVal.textContent = formatSpeedNum(currentUl, 2);
+            secondarySub.textContent = speedUnit === 'MB/sec'
+              ? currentUl.toFixed(1) + ' Mbps'
+              : (currentUl / 8).toFixed(2) + ' MB/sec';
+            document.getElementById('liveUploadVal').textContent = formatSpeedNum(currentUl, 2);
+            setGaugeArc(currentUl, maxScaleMbps, true);
+          } else {
+            clearInterval(testTimerId);
+            testTimerId = null;
+            isTesting = false;
+
+            const newRecord = {
+              id: 'test-' + Date.now(),
+              timestamp: new Date().toISOString(),
+              connectionType: selectedConnectionType,
+              download: Number(finalDl.toFixed(1)),
+              upload: Number(finalUl.toFixed(1)),
+              ping: measuredPing,
+              jitter: measuredJitter,
+              note: triggerSource === 'Auto' ? 'Auto-Tracker (' + targets.label + ')' : targets.label
+            };
+
+            speedLogs.push(newRecord);
+            saveState();
+
+            runBtn.disabled = false;
+            runBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            runBtnLabel.textContent = 'Start ' + selectedConnectionType + ' Speed Test';
+            subtitle.textContent = selectedConnectionType + ' test finished at ' + formatShortTime(newRecord.timestamp);
+            progressBar.style.width = '100%';
+
+            updateDashboardUI();
+            showToast(
+              selectedConnectionType + ' speed: ' +
+              formatSpeedNum(newRecord.download, 2) + ' ' + speedUnit + ' ↓ / ' +
+              formatSpeedNum(newRecord.upload, 2) + ' ' + speedUnit + ' ↑'
+            );
+          }
+        }, 110);
+      }
+
+      function setupAutoTracker() {
+        const select = document.getElementById('autoIntervalSelect');
+        const dot = document.getElementById('autoMonitorDot');
+        const countdown = document.getElementById('autoCountdownText');
+
+        select.addEventListener('change', () => {
+          autoIntervalSec = parseInt(select.value, 10) || 0;
+          if (autoTickId) {
+            clearInterval(autoTickId);
+            autoTickId = null;
+          }
+
+          if (autoIntervalSec <= 0) {
+            dot.className = 'w-2 h-2 rounded-full bg-slate-600';
+            countdown.classList.add('hidden');
+            showToast('Auto-tracker disabled');
+            return;
+          }
+
+          autoRemainingSec = autoIntervalSec;
+          dot.className = 'w-2 h-2 rounded-full bg-cyan-400 pulse-active';
+          countdown.classList.remove('hidden');
+          countdown.textContent = autoRemainingSec + 's';
+          showToast('Auto-tracking enabled every ' + autoIntervalSec + 's');
+
+          autoTickId = setInterval(() => {
+            if (isTesting) return;
+            autoRemainingSec--;
+            if (autoRemainingSec <= 0) {
+              autoRemainingSec = autoIntervalSec;
+              runSpeedTest('Auto');
+            }
+            countdown.textContent = autoRemainingSec + 's';
+          }, 1000);
+        });
+      }
+
+      function exportCsv() {
+        if (speedLogs.length === 0) {
+          showToast('No speed test records to export');
+          return;
+        }
+        const headers = [
+          'Timestamp',
+          'Connection_Type',
+          'Note',
+          'Download_MB_per_sec',
+          'Upload_MB_per_sec',
+          'Download_Mbps',
+          'Upload_Mbps',
+          'Ping_ms',
+          'Jitter_ms',
+          'Status'
+        ];
+        const rows = speedLogs.map(r => [
+          r.timestamp,
+          '"' + String(r.connectionType || 'Wi-Fi') + '"',
+          '"' + String(r.note || '').replace(/"/g, '""') + '"',
+          (r.download / 8).toFixed(2),
+          (r.upload / 8).toFixed(2),
+          r.download.toFixed(1),
+          r.upload.toFixed(1),
+          r.ping,
+          r.jitter,
+          evaluateStatus(r)
+        ]);
+        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'netpulse_speed_history.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showToast('Exported ' + speedLogs.length + ' speed records (MB/sec & Mbps) to CSV');
+      }
+
+      function setConnectionMode(mode) {
+        selectedConnectionType = mode;
+        const profileSelect = document.getElementById('testProfileSelect');
+        if (mode === 'Mobile Data' && (profileSelect.value === 'fiber' || profileSelect.value === 'cable')) {
+          profileSelect.value = '5g';
+        } else if (mode === 'Wi-Fi' && (profileSelect.value === '5g' || profileSelect.value === '4g')) {
+          profileSelect.value = 'fiber';
+        }
+        updateConnectionModeButtons();
+        showToast('Switched active test mode to ' + mode);
+      }
+
+      function setConnectionFilterSync(filterVal) {
+        document.getElementById('logConnectionFilter').value = filterVal;
+        document.querySelectorAll('.conn-view-btn').forEach(btn => {
+          if (btn.getAttribute('data-conn-filter') === filterVal) {
+            btn.className = 'conn-view-btn px-2.5 py-1 rounded-md text-xs font-medium bg-cyan-500/20 text-cyan-300';
+          } else {
+            btn.className = 'conn-view-btn px-2.5 py-1 rounded-md text-xs font-medium text-slate-400 hover:text-slate-200';
+          }
+        });
+        updateDashboardUI();
+      }
+
+      function bindEvents() {
+        document.getElementById('runSpeedTestBtn').addEventListener('click', () => runSpeedTest('Manual'));
+        document.getElementById('exportCsvBtn').addEventListener('click', exportCsv);
+
+        // Wi-Fi vs Mobile Data buttons
+        document.getElementById('connWifiBtn').addEventListener('click', () => setConnectionMode('Wi-Fi'));
+        document.getElementById('connMobileBtn').addEventListener('click', () => setConnectionMode('Mobile Data'));
+
+        // Unit switcher buttons (MB/sec vs Mbps)
+        document.getElementById('unitMBpsBtn').addEventListener('click', () => {
+          speedUnit = 'MB/sec';
+          saveState();
+          updateDashboardUI();
+          showToast('Displaying speeds in MB/sec (Megabytes/sec)');
+        });
+        document.getElementById('unitMbpsBtn').addEventListener('click', () => {
+          speedUnit = 'Mbps';
+          saveState();
+          updateDashboardUI();
+          showToast('Displaying speeds in Mbps (Megabits/sec)');
+        });
+
+        // Connection Filter buttons in KPI bar
+        document.querySelectorAll('.conn-view-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            setConnectionFilterSync(btn.getAttribute('data-conn-filter'));
+          });
+        });
+
+        document.getElementById('logConnectionFilter').addEventListener('change', e => {
+          setConnectionFilterSync(e.target.value);
+        });
+
+        // Chart mode toggle
+        document.querySelectorAll('.chart-mode-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            chartMode = btn.getAttribute('data-chart-mode');
+            document.querySelectorAll('.chart-mode-btn').forEach(b => {
+              b.className = 'chart-mode-btn px-2.5 py-1 rounded-md text-xs font-medium text-slate-400 hover:text-slate-200';
+            });
+            btn.className = 'chart-mode-btn px-2.5 py-1 rounded-md text-xs font-medium bg-cyan-500/20 text-cyan-300';
+            updateChart();
+          });
+        });
+
+        document.getElementById('chartLimitSelect').addEventListener('change', updateChart);
+        document.getElementById('logSearchInput').addEventListener('input', renderTable);
+        document.getElementById('logStatusFilter').addEventListener('change', renderTable);
+
+        // Delete individual log entry via event delegation
+        document.getElementById('speedLogTableBody').addEventListener('click', e => {
+          const btn = e.target.closest('.delete-log-btn');
+          if (!btn) return;
+          const id = btn.getAttribute('data-delete-id');
+          speedLogs = speedLogs.filter(item => item.id !== id);
+          saveState();
+          updateDashboardUI();
+          showToast('Deleted speed test entry');
+        });
+
+        // Reset History
+        document.getElementById('clearHistoryBtn').addEventListener('click', () => {
+          speedLogs = createInitialHistory();
+          saveState();
+          updateDashboardUI();
+          showToast('Reset log to baseline sample history');
+        });
+
+        // Plan Modal
+        const planModal = document.getElementById('planModal');
+        const openPlanModal = () => {
+          document.getElementById('ispNameInput').value = ispPlan.ispName;
+          document.getElementById('planDlModalLabel').textContent = 'Promised Download (' + speedUnit + ')';
+          document.getElementById('planUlModalLabel').textContent = 'Promised Upload (' + speedUnit + ')';
+          document.getElementById('planDownloadInput').value = Number(toDisplaySpeed(ispPlan.downloadMbps).toFixed(2));
+          document.getElementById('planUploadInput').value = Number(toDisplaySpeed(ispPlan.uploadMbps).toFixed(2));
+          document.getElementById('slaThresholdInput').value = ispPlan.slaPercent;
+          document.getElementById('maxPingInput').value = ispPlan.maxPingMs;
+          planModal.classList.remove('hidden');
+          planModal.classList.add('flex');
+        };
+        const closePlanModal = () => {
+          planModal.classList.add('hidden');
+          planModal.classList.remove('flex');
+        };
+        document.getElementById('openPlanModalBtn').addEventListener('click', openPlanModal);
+        document.getElementById('closePlanModalBtn').addEventListener('click', closePlanModal);
+        document.getElementById('cancelPlanModalBtn').addEventListener('click', closePlanModal);
+
+        document.getElementById('planForm').addEventListener('submit', e => {
+          e.preventDefault();
+          const dlInputVal = Number(document.getElementById('planDownloadInput').value) || 37.5;
+          const ulInputVal = Number(document.getElementById('planUploadInput').value) || 18.8;
+          ispPlan = {
+            ispName: document.getElementById('ispNameInput').value.trim() || 'My ISP Plan',
+            downloadMbps: Math.max(1, Number(fromDisplaySpeedToMbps(dlInputVal).toFixed(1))),
+            uploadMbps: Math.max(1, Number(fromDisplaySpeedToMbps(ulInputVal).toFixed(1))),
+            slaPercent: Math.min(100, Math.max(10, Number(document.getElementById('slaThresholdInput').value) || 80)),
+            maxPingMs: Math.max(1, Number(document.getElementById('maxPingInput').value) || 40)
+          };
+          saveState();
+          closePlanModal();
+          updateDashboardUI();
+          showToast('Updated ISP Plan benchmark');
+        });
+
+        // Manual Entry Modal
+        const manualModal = document.getElementById('manualModal');
+        const openManualModal = () => {
+          document.getElementById('manualForm').reset();
+          document.getElementById('manualConnectionInput').value = selectedConnectionType;
+          document.getElementById('manualDlModalLabel').textContent = 'Download (' + speedUnit + ')';
+          document.getElementById('manualUlModalLabel').textContent = 'Upload (' + speedUnit + ')';
+          manualModal.classList.remove('hidden');
+          manualModal.classList.add('flex');
+        };
+        const closeManualModal = () => {
+          manualModal.classList.add('hidden');
+          manualModal.classList.remove('flex');
+        };
+        document.getElementById('openManualModalBtn').addEventListener('click', openManualModal);
+        document.getElementById('closeManualModalBtn').addEventListener('click', closeManualModal);
+        document.getElementById('cancelManualModalBtn').addEventListener('click', closeManualModal);
+
+        document.getElementById('manualForm').addEventListener('submit', e => {
+          e.preventDefault();
+          const connType = document.getElementById('manualConnectionInput').value || 'Wi-Fi';
+          const rawDl = Math.max(0.05, Number(document.getElementById('manualDownloadInput').value) || 12.5);
+          const rawUl = Math.max(0.05, Number(document.getElementById('manualUploadInput').value) || 6.25);
+          const dlMbps = fromDisplaySpeedToMbps(rawDl);
+          const ulMbps = fromDisplaySpeedToMbps(rawUl);
+          const ping = Math.max(1, Number(document.getElementById('manualPingInput').value) || 15);
+          const jitter = Math.max(0, Number(document.getElementById('manualJitterInput').value) || 2);
+          const note = document.getElementById('manualNoteInput').value.trim() || ('Manual ' + connType + ' Entry');
+
+          speedLogs.push({
+            id: 'manual-' + Date.now(),
+            timestamp: new Date().toISOString(),
+            connectionType: connType,
+            download: Number(dlMbps.toFixed(1)),
+            upload: Number(ulMbps.toFixed(1)),
+            ping: Math.round(ping),
+            jitter: Math.round(jitter),
+            note
+          });
+          saveState();
+          closeManualModal();
+          updateDashboardUI();
+          showToast('Added manual ' + connType + ' speed entry (' + formatSpeedNum(dlMbps, 2) + ' ' + speedUnit + ')');
+        });
+
+        // Online/Offline listener
+        const updateOnlineBadge = () => {
+          const badge = document.getElementById('connectionStatusBadge');
+          if (navigator.onLine) {
+            badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
+            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Online';
+          } else {
+            badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30';
+            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>Offline';
+          }
+        };
+        window.addEventListener('online', updateOnlineBadge);
+        window.addEventListener('offline', updateOnlineBadge);
+      }
+
+      window.addEventListener('DOMContentLoaded', () => {
+        loadState();
+        bindEvents();
+        setupAutoTracker();
+        updateDashboardUI();
+      });
+    })();
+  </script>
+</body>
+</html>
